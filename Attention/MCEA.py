@@ -1,55 +1,69 @@
 import torch
 import torch.nn as nn
-# Multi-scal Chanel Enhancement Attention
+
+# Residual残差连接模块
+class Residual(nn.Module):
+    def __init__(self, block):
+        super(Residual, self).__init__()
+        self.block = block
+    def forward(self, x):
+        return x + self.block(x)  # 残差连接
+
+def DcovN(c1, c2, depth, kernel_size=3, patch_size=3):
+    return nn.Sequential(
+        nn.Conv2d(c1, c2, kernel_size=patch_size, stride=patch_size),
+        nn.SiLU(),
+        nn.GroupNorm(1, c2),
+        *[
+            nn.Sequential(
+                Residual(
+                    nn.Sequential(
+                        nn.Conv2d(c2, c2, kernel_size, stride=1,
+                                  padding=1, groups=c2),
+                        nn.SiLU(),
+                        nn.GroupNorm(1, c2)
+                    )
+                ),
+                nn.Conv2d(c2, c2, 1, stride=1, padding=0, groups=1),
+                nn.SiLU(),
+                nn.GroupNorm(1, c2)
+            ) for _ in range(depth)
+        ]
+    )
+
+
+
 class MCEA(nn.Module):
-    def __init__(self, c1, reduction=32, scales=[3, 5, 7], d=2):
-        """
-        多尺度增强通道注意力模块
-        :param c1: 输入输出通道数
-        :param reduction: 注意力压缩比 (默认32)
-        :param scales: 多尺度卷积核大小列表 (默认[3,5,7])
-        :param d: 通道减少因子 (默认2)
-        """
-        super().__init__()
-        self.c1 = c1
-        self.scales = scales
-        self.d = d
-        self.c_prime = max(c1 // d, 1)   
-        # 确保中间通道数至少为1
-        mid_channels = max(c1 // reduction, 1)
-        # 多尺度深度可分离卷积分支
-        self.conv_branches = nn.ModuleList()
-        for k in scales:
-            conv = nn.Sequential(
-                nn.Conv2d(c1, c1, kernel_size=k, padding=k // 2, groups=c1, bias=False),   
-                nn.Conv2d(c1, self.c_prime, kernel_size=1, bias=False)   
-            )
-            self.conv_branches.append(conv)
-        # 全局平均池化
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        # 特征压缩层: 将拼接后的向量压缩回c1通道
-        self.compress = nn.Conv2d(len(scales) * self.c_prime, c1, kernel_size=1, bias=False)
-        # 通道注意力机制 - 修复中间通道数
-        self.channel_attention = nn.Sequential(
-            nn.Conv2d(c1, mid_channels, kernel_size=1, bias=False),
+    def __init__(self, c1, depth=1, kernel_size=3, patch_size=[3, 5, 7],
+                 reduction=16):
+        super(MCEA, self).__init__()
+        c2 = c1
+        self.patch_size = patch_size
+        self.branches = nn.ModuleList([
+            DcovN(c1, c2, depth, kernel_size, ps) for ps in patch_size
+        ])
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(c2, c2 // reduction, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, c1, kernel_size=1, bias=False),
+            nn.Linear(c2 // reduction, c2, bias=False),
             nn.Sigmoid()
         )
+
     def forward(self, x):
-        identity = x
-        # 多尺度深度可分离卷积
-        branch_outputs = []
-        for conv in self.conv_branches:
-            y = conv(x)  
-            branch_outputs.append(y)
-        # 全局平均池化
-        gap_features = [self.gap(y) for y in branch_outputs]  
-        # 拼接多尺度特征向量
-        fused = torch.cat(gap_features, dim=1)  
-        # 特征压缩
-        compressed = self.compress(fused)  
-        # 通道注意力
-        attention = self.channel_attention(compressed)  
-        # 广播注意力权重并应用
-        return identity * attention
+        b, c, h, w = x.size()
+
+        # 处理各分支输出
+        branch_outputs = [branch(x) for branch in self.branches]
+        y_list = [self.avg_pool(y).view(b, c) for y in branch_outputs]
+
+        # 添加原始特征
+        y_origin = self.avg_pool(x).view(b, c)
+        y_list.append(y_origin)
+
+        # 特征融合
+        y = sum(y_list) / len(y_list)
+        y = self.fc(y).view(b, c, 1, 1)
+        y = torch.exp(y)
+        return x * y.expand_as(x)
