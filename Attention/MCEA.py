@@ -14,15 +14,15 @@ class MCEA(nn.Module):
         self.c1 = c1
         self.scales = scales
         self.d = d
-        self.c_prime = max(c1 // d, 1)  # 确保至少为1
+        self.c_prime = max(c1 // d, 1)   
         # 确保中间通道数至少为1
         mid_channels = max(c1 // reduction, 1)
         # 多尺度深度可分离卷积分支
         self.conv_branches = nn.ModuleList()
         for k in scales:
             conv = nn.Sequential(
-                nn.Conv2d(c1, c1, kernel_size=k, padding=k // 2, groups=c1, bias=False),  # 深度卷积
-                nn.Conv2d(c1, self.c_prime, kernel_size=1, bias=False)  # 逐点卷积
+                nn.Conv2d(c1, c1, kernel_size=k, padding=k // 2, groups=c1, bias=False),   
+                nn.Conv2d(c1, self.c_prime, kernel_size=1, bias=False)   
             )
             self.conv_branches.append(conv)
         # 全局平均池化
@@ -41,15 +41,15 @@ class MCEA(nn.Module):
         # 多尺度深度可分离卷积
         branch_outputs = []
         for conv in self.conv_branches:
-            y = conv(x)  # 输出形状: [B, C_prime, H, W]
+            y = conv(x)  
             branch_outputs.append(y)
         # 全局平均池化
-        gap_features = [self.gap(y) for y in branch_outputs]  # 每个形状: [B, C_prime, 1, 1]
+        gap_features = [self.gap(y) for y in branch_outputs]  
         # 拼接多尺度特征向量
-        fused = torch.cat(gap_features, dim=1)  # 形状: [B, 3*C_prime, 1, 1]
+        fused = torch.cat(gap_features, dim=1)  
         # 特征压缩
-        compressed = self.compress(fused)  # 形状: [B, C, 1, 1]
+        compressed = self.compress(fused)  
         # 通道注意力
-        attention = self.channel_attention(compressed)  # 形状: [B, C, 1, 1]
+        attention = self.channel_attention(compressed)  
         # 广播注意力权重并应用
         return identity * attention
