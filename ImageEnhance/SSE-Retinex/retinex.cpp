@@ -20,7 +20,7 @@ cv::Mat Retinex::single_scale_retinex(const cv::Mat& src, double sigma)
         float* diff_row = difference.ptr<float>(i);
 
         int j = 0;
-        // 使用SSE一次处理4个像素（替换AVX2）
+        // 使用SSE一次处理4个像素
         for (; j <= srcFloat.cols - 4; j += 4)
         {
             // 使用SSE指令加载数据
@@ -48,6 +48,55 @@ cv::Mat Retinex::single_scale_retinex(const cv::Mat& src, double sigma)
 
     return difference;
 }
+
+/*** AVX2指令 Retinex ***/
+// cv::Mat Retinex::single_scale_retinex(const cv::Mat& src, double sigma)
+// {
+//     cv::Mat gaussImg;
+//     cv::GaussianBlur(src, gaussImg, cv::Size(0, 0), sigma);
+
+//     cv::Mat srcFloat, gaussFloat;
+//     src.convertTo(srcFloat, CV_32F);
+//     gaussImg.convertTo(gaussFloat, CV_32F);
+
+//     cv::Mat difference(src.size(), CV_32F);
+
+// #pragma omp parallel for
+//     for (int i = 0; i < srcFloat.rows; i++)
+//     {
+//         // 使用行指针提高效率
+//         const float* src_row = srcFloat.ptr<float>(i);
+//         const float* gauss_row = gaussFloat.ptr<float>(i);
+//         float* diff_row = difference.ptr<float>(i);
+
+//         int j = 0;
+//         // 使用AVX2一次处理8个像素
+//         for (; j <= srcFloat.cols - 8; j += 8)
+//         {
+//             __m256 src_vals = _mm256_loadu_ps(src_row + j);
+//             __m256 gauss_vals = _mm256_loadu_ps(gauss_row + j);
+//             __m256 one = _mm256_set1_ps(1.0f);
+
+//             // 计算 log(src + 1)
+//             __m256 log_src_vals = _mm256_log_ps(_mm256_add_ps(src_vals, one));
+
+//             // 计算 log(gauss + 1)
+//             __m256 log_gauss_vals = _mm256_log_ps(_mm256_add_ps(gauss_vals, one));
+
+//             // 计算差值
+//             __m256 diff_vals = _mm256_sub_ps(log_src_vals, log_gauss_vals);
+//             _mm256_storeu_ps(diff_row + j, diff_vals);
+//         }
+
+//         // 处理剩余像素
+//         for (; j < srcFloat.cols; j++)
+//         {
+//             diff_row[j] = std::log(src_row[j] + 1.0f) - std::log(gauss_row[j] + 1.0f);
+//         }
+//     }
+
+//     return difference;
+// }
 
 
 void Retinex::retinex_process(const cv::Mat& src, cv::Mat& dst, double sigma)
