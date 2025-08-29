@@ -43,7 +43,7 @@ void Retinex::retinex_process(const cv::Mat& src, cv::Mat& dst, double sigma)
     std::vector<cv::Mat> channels;
     std::vector<cv::Mat> channels_dst;
     cv::split(src, channels);
-#pragma omp parallel
+    #pragma omp parallel for
     for (int i = 0; i < channels.size(); i++)
     {
         channels_dst.push_back(single_scale_retinex(channels[i], sigma));
@@ -54,7 +54,7 @@ void Retinex::retinex_process(const cv::Mat& src, cv::Mat& dst, double sigma)
 void Retinex::multi_retinex_process(const cv::Mat& src, cv::Mat& dst, std::vector<double>& sigma, std::vector<double>& w)
 {
     std::vector<cv::Mat> temp(sigma.size());
-#pragma omp parallel for
+   #pragma omp parallel for
     for (int i = 0; i < sigma.size(); i++)
     {
         retinex_process(src, temp[i], sigma[i]);
@@ -81,7 +81,7 @@ void Retinex::color_restoration(const cv::Mat& src, cv::Mat& dst, double a, doub
     {
         sum += channels[i];
     }
-#pragma omp parallel
+#pragma omp parallel for
     dst = cv::Mat(src.size(), CV_32FC3);
     for (int i = 0; i < 3; ++i)
     {
@@ -105,7 +105,7 @@ void Retinex::multi_retinex_color_restoration_process(const cv::Mat& src, cv::Ma
     cv::Mat colorResImg(src.size(), CV_32FC3, cv::Scalar(0, 0, 0));
     color_restoration(src, colorResImg, a, b);
 // 并行化颜色恢复的多尺度Retinex计算
-#pragma omp parallel
+#pragma omp parallel for
     for (int i = 0; i < src.rows; i++)
     {
         for (int j = 0; j < src.cols; j++)
